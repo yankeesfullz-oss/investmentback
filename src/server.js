@@ -7,19 +7,12 @@ const { initializeSocket } = require('./config/socket');
 const setupSocketHandlers = require('./realtime/socketHandlers');
 
 async function startServer() {
-  // Production safety checks for required secrets
-  if (env.nodeEnv === 'production') {
-    if (env.walletMnemonic && (env.walletMnemonicPassphrase === undefined || env.walletMnemonicPassphrase === '')) {
-      console.error('MNEMONIC_PASSPHRASE is required in production when MNEMONIC is set. Set the MNEMONIC_PASSPHRASE environment variable.');
-      process.exit(1);
-    }
-  }
   await connectDatabase();
 
   const server = http.createServer(app);
   const io = initializeSocket(server, {
     cors: {
-      origin: env.clientUrl,
+      origin: env.nodeEnv === 'development' ? true : env.allowedOrigins,
       credentials: true,
     },
   });
