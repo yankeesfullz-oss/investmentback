@@ -14,8 +14,11 @@ module.exports = {
     ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim())
     : [process.env.CLIENT_URL || 'http://localhost:3000'],
   encryptionKey: process.env.ENCRYPTION_KEY || 'replace-with-32-char-key',
-  walletMnemonic: process.env.MNEMONIC || process.env.MNEMONIC_PHRASE || process.env.SEED || '',
-  walletMnemonicPassphrase: process.env.MNEMONIC_PASSPHRASE || '',
+  // Wallet mnemonic and optional passphrase. In production these should be set
+  // as environment variables (do NOT commit them to source control).
+  walletMnemonic: process.env.MNEMONIC || process.env.MNEMONIC_PHRASE || process.env.SEED || undefined,
+  // Keep undefined when not provided so we can detect missing passphrase in production
+  walletMnemonicPassphrase: process.env.MNEMONIC_PASSPHRASE !== undefined ? process.env.MNEMONIC_PASSPHRASE : undefined,
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
   chatKnowledgeBasePath: process.env.CHAT_KNOWLEDGE_BASE_PATH || path.resolve(__dirname, '../../../investment/chatbot-knowledge-base.txt'),
