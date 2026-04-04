@@ -8,16 +8,29 @@ const logger = require('./middleware/logger');
 const rateLimiter = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
 
-const authRoutes = require('./routes/auth.routes');
-const userRoutes = require('./routes/user.routes');
-const walletRoutes = require('./routes/wallet.routes');
-const depositRoutes = require('./routes/deposit.routes');
-const withdrawalRoutes = require('./routes/withdrawal.routes');
-const propertyRoutes = require('./routes/property.routes');
-const investmentRoutes = require('./routes/investment.routes');
-const bookingRoutes = require('./routes/booking.routes');
-const payoutRoutes = require('./routes/payout.routes');
-const chatRoutes = require('./routes/chat.routes');
+function safeRequire(modulePath) {
+  try {
+    return require(modulePath);
+  } catch (error) {
+    if (error && error.code === 'MODULE_NOT_FOUND') {
+      console.warn(`[startup] Skipping optional module ${modulePath}: ${error.message}`);
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+const authRoutes = safeRequire('./routes/auth.routes');
+const userRoutes = safeRequire('./routes/user.routes');
+const walletRoutes = safeRequire('./routes/wallet.routes');
+const depositRoutes = safeRequire('./routes/deposit.routes');
+const withdrawalRoutes = safeRequire('./routes/withdrawal.routes');
+const propertyRoutes = safeRequire('./routes/property.routes');
+const investmentRoutes = safeRequire('./routes/investment.routes');
+const bookingRoutes = safeRequire('./routes/booking.routes');
+const payoutRoutes = safeRequire('./routes/payout.routes');
+const chatRoutes = safeRequire('./routes/chat.routes');
 
 const app = express();
 
@@ -46,16 +59,24 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', service: 'investair-backend' });
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/wallets', walletRoutes);
-app.use('/api/deposits', depositRoutes);
-app.use('/api/withdrawals', withdrawalRoutes);
-app.use('/api/properties', propertyRoutes);
-app.use('/api/investments', investmentRoutes);
-app.use('/api/bookings', bookingRoutes);
-app.use('/api/payouts', payoutRoutes);
-app.use('/api/chat', chatRoutes);
+const routeRegistry = [
+  ['/api/auth', authRoutes],
+  ['/api/users', userRoutes],
+  ['/api/wallets', walletRoutes],
+  ['/api/deposits', depositRoutes],
+  ['/api/withdrawals', withdrawalRoutes],
+  ['/api/properties', propertyRoutes],
+  ['/api/investments', investmentRoutes],
+  ['/api/bookings', bookingRoutes],
+  ['/api/payouts', payoutRoutes],
+  ['/api/chat', chatRoutes],
+];
+
+routeRegistry.forEach(([basePath, router]) => {
+  if (router) {
+    app.use(basePath, router);
+  }
+});
 
 app.use(errorHandler);
 
