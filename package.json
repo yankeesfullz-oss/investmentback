@@ -1,0 +1,53 @@
+{
+  "name": "investair-backend",
+  "version": "1.0.0",
+  "description": "Express backend scaffold for the InvestAir crypto investment platform",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "create-admin": "node scripts/createAdmin.js",
+    "fund-user": "node scripts/fundUserWallet.js",
+    "seed-properties": "node scripts/seedProperties.js",
+    "start": "node src/server.js",
+    "test": "echo \"No tests configured yet\""
+  },
+  "keywords": [
+    "express",
+    "mongodb",
+    "crypto",
+    "investair"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@ethereumjs/wallet": "^10.0.0",
+    "@google/generative-ai": "^0.24.1",
+    "bcryptjs": "^2.4.3",
+    "bip32": "^5.0.1",
+    "bip39": "^3.1.0",
+    "bitcoinjs-lib": "^7.0.1",
+    "bs58": "^6.0.0",
+    "bs58check": "^4.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "ethereumjs-util": "^7.1.5",
+    "ethereumjs-wallet": "^1.0.2",
+    "ethers": "^6.16.0",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "hdkey": "^2.1.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+    "morgan": "^1.10.0",
+    "multer": "^2.1.1",
+    "node-cron": "^3.0.3",
+    "socket.io": "^4.8.1",
+    "tiny-secp256k1": "^2.2.4",
+    "tronweb": "^6.2.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
