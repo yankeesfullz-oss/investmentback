@@ -22,10 +22,17 @@ const chatRoutes = require('./routes/chat.routes');
 const app = express();
 
 app.use(helmet());
-// In development allow requests from any origin (reflect), in production
-// restrict to the configured client URL.
+// Configure CORS: allow all in development, otherwise restrict to allowed origins
 const corsOptions = {
-  origin: env.nodeEnv === 'development' ? true : env.clientUrl,
+  origin: function (origin, cb) {
+    if (env.nodeEnv === 'development') return cb(null, true);
+    // Allow requests with no origin (e.g., server-to-server, curl)
+    if (!origin) return cb(null, true);
+    if (env.allowedOrigins && env.allowedOrigins.indexOf(origin) !== -1) {
+      return cb(null, true);
+    }
+    return cb(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 };
 app.use(cors(corsOptions));

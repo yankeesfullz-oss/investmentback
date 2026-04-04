@@ -9,6 +9,10 @@ module.exports = {
   mongodbUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/investair',
   jwtSecret: process.env.JWT_SECRET || 'change-me',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
+  // Comma-separated list of allowed origins for CORS. Example: "https://example.com,https://app.example.com"
+  allowedOrigins: process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim())
+    : [process.env.CLIENT_URL || 'http://localhost:3000'],
   encryptionKey: process.env.ENCRYPTION_KEY || 'replace-with-32-char-key',
   walletMnemonic: process.env.MNEMONIC || process.env.MNEMONIC_PHRASE || process.env.SEED || '',
   walletMnemonicPassphrase: process.env.MNEMONIC_PASSPHRASE || '',
