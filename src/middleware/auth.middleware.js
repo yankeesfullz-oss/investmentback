@@ -41,6 +41,7 @@ async function resolveAuth0User(token) {
       email: normalizedEmail,
       fullName: profile.name || profile.nickname || normalizedEmail,
       role: 'investor',
+      lastLoginAt: new Date(),
     });
   } else {
     let shouldSave = false;
@@ -55,6 +56,14 @@ async function resolveAuth0User(token) {
       shouldSave = true;
     }
 
+    if (normalizedEmail && user.email !== normalizedEmail) {
+      user.email = normalizedEmail;
+      shouldSave = true;
+    }
+
+    user.lastLoginAt = new Date();
+    shouldSave = true;
+
     if (shouldSave) {
       await user.save();
     }
@@ -66,6 +75,7 @@ async function resolveAuth0User(token) {
     fullName: user.fullName,
     role: user.role,
     auth0Sub: user.auth0Sub,
+    lastLoginAt: user.lastLoginAt,
   };
 }
 

@@ -45,6 +45,8 @@ const chatRateLimiter = rateLimit({
 
 router.get('/messages', auth, investorOnly, chatRateLimiter, controller.listMessages);
 router.get('/admin/messages', auth, admin, chatRateLimiter, controller.listAdminMessages);
+router.get('/admin/users', auth, admin, chatRateLimiter, controller.listChatUsers);
+router.get('/admin/users/:userId/messages', auth, admin, chatRateLimiter, controller.listAdminUserMessages);
 router.post('/messages', auth, investorOnly, chatRateLimiter, upload.array('screenshots', 3), controller.createMessage);
 
 module.exports = router;

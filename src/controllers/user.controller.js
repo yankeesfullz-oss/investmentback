@@ -1,8 +1,26 @@
 const User = require('../models/User');
 
+function getUserSelectFields() {
+  return 'email fullName role auth0Sub lastLoginAt createdAt updatedAt';
+}
+
 async function getCurrentUser(req, res, next) {
   try {
-    const user = await User.findById(req.user.id).select('email fullName role auth0Sub createdAt updatedAt');
+    const user = await User.findById(req.user.id).select(getUserSelectFields());
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    return res.status(200).json(user);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function syncCurrentUser(req, res, next) {
+  try {
+    const user = await User.findById(req.user.id).select(getUserSelectFields());
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -17,7 +35,7 @@ async function getCurrentUser(req, res, next) {
 async function listUsers(req, res, next) {
   try {
     const users = await User.find({ role: 'investor' })
-      .select('email fullName role auth0Sub createdAt updatedAt')
+      .select(getUserSelectFields())
       .sort({ createdAt: -1 });
 
     return res.status(200).json(users);
@@ -28,5 +46,6 @@ async function listUsers(req, res, next) {
 
 module.exports = {
   getCurrentUser,
+  syncCurrentUser,
   listUsers,
 };

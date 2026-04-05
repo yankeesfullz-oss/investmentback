@@ -18,6 +18,24 @@ async function listAdminMessages(req, res, next) {
   }
 }
 
+async function listChatUsers(req, res, next) {
+  try {
+    const users = await chatService.listChatUsers();
+    return res.status(200).json(users);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listAdminUserMessages(req, res, next) {
+  try {
+    const messages = await chatService.listAdminUserMessages(req.params.userId);
+    return res.status(200).json(messages);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function createMessage(req, res, next) {
   try {
     const response = await chatService.createMessage({
@@ -36,5 +54,7 @@ async function createMessage(req, res, next) {
 module.exports = {
   listMessages,
   listAdminMessages,
+  listChatUsers,
+  listAdminUserMessages,
   createMessage,
 };

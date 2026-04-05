@@ -319,6 +319,55 @@ async function listAdminMessages() {
     .lean();
 }
 
+async function listChatUsers() {
+  const rows = await ChatMessage.aggregate([
+    { $sort: { createdAt: -1 } },
+    {
+      $group: {
+        _id: '$user',
+        messageCount: { $sum: 1 },
+        lastMessageAt: { $first: '$createdAt' },
+        lastMessagePreview: { $first: '$content' },
+        escalationRequested: { $max: { $cond: ['$escalationRequested', 1, 0] } },
+        liveSupportOffered: { $max: { $cond: ['$liveSupportOffered', 1, 0] } },
+      },
+    },
+    {
+      $lookup: {
+        from: 'users',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'user',
+      },
+    },
+    { $unwind: '$user' },
+    { $sort: { lastMessageAt: -1 } },
+  ]);
+
+  return rows.map((row) => ({
+    _id: String(row._id),
+    messageCount: Number(row.messageCount || 0),
+    lastMessageAt: row.lastMessageAt,
+    lastMessagePreview: row.lastMessagePreview || '',
+    escalationRequested: Boolean(row.escalationRequested),
+    liveSupportOffered: Boolean(row.liveSupportOffered),
+    user: {
+      _id: String(row.user?._id || ''),
+      email: row.user?.email || '',
+      fullName: row.user?.fullName || 'Investor',
+      role: row.user?.role || 'investor',
+      auth0Sub: row.user?.auth0Sub || '',
+    },
+  }));
+}
+
+async function listAdminUserMessages(userId) {
+  return ChatMessage.find({ user: userId })
+    .populate('user', 'fullName email role auth0Sub')
+    .sort({ createdAt: 1 })
+    .lean();
+}
+
 function serializeAdminMessage(message, user) {
   return {
     _id: String(message._id || message.id || ''),
@@ -454,5 +503,7 @@ async function createMessage({ userId, content, screenshots = [], sessionId }) {
 module.exports = {
   listMessages,
   listAdminMessages,
+  listChatUsers,
+  listAdminUserMessages,
   createMessage,
 };

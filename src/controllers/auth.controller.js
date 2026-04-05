@@ -22,6 +22,9 @@ async function adminLogin(req, res, next) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    user.lastLoginAt = new Date();
+    await user.save();
+
     const token = signToken({
       id: user.id,
       email: user.email,
