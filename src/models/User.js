@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema(
   {
+    auth0Sub: { type: String, default: '', trim: true, index: true, sparse: true },
     fullName: { type: String, default: '' },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, default: '', select: false },

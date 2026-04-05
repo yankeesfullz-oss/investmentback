@@ -4,14 +4,23 @@ const WalletLedger = require('../models/WalletLedger');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const { BTC, ETH, USDT } = require('../constants/currencies');
-const { generateBtcWallet } = require('../blockchain/btcWalletGenerator');
-const { generateEthWallet } = require('../blockchain/ethWalletGenerator');
-const { generateUsdtWallet } = require('../blockchain/usdtWalletGenerator');
 
 function createHttpError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+function loadWalletGenerator(modulePath, exportName) {
+  try {
+    return require(modulePath)[exportName];
+  } catch (error) {
+    if (error && error.code === 'MODULE_NOT_FOUND') {
+      return null;
+    }
+
+    throw error;
+  }
 }
 
 async function listUserWallets(userId) {
@@ -37,6 +46,15 @@ async function reserveWalletIndex(sequenceKey) {
 }
 
 async function createUniqueWallet(userId, currency, sequenceKey, generator) {
+  if (!generator) {
+    return {
+      user: userId,
+      currency,
+      address: '',
+      encryptedPrivateKey: '',
+    };
+  }
+
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const index = await reserveWalletIndex(sequenceKey);
     const wallet = await generator(userId, { index });
@@ -59,6 +77,9 @@ async function provisionUserWallets(userId) {
   const existingWallets = await Wallet.find({ user: userId });
   const existingCurrencies = new Set(existingWallets.map((wallet) => wallet.currency));
   const walletsToCreate = [];
+  const generateBtcWallet = loadWalletGenerator('../blockchain/btcWalletGenerator', 'generateBtcWallet');
+  const generateEthWallet = loadWalletGenerator('../blockchain/ethWalletGenerator', 'generateEthWallet');
+  const generateUsdtWallet = loadWalletGenerator('../blockchain/usdtWalletGenerator', 'generateUsdtWallet');
 
   if (!existingCurrencies.has(BTC)) {
     walletsToCreate.push(await createUniqueWallet(userId, BTC, 'btc', generateBtcWallet));

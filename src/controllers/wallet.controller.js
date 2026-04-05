@@ -2,7 +2,7 @@ const walletService = require('../services/wallet.service');
 
 async function listWallets(req, res, next) {
   try {
-    const wallets = await walletService.listUserWallets(req.user.id);
+    const wallets = await walletService.provisionUserWallets(req.user.id);
     return res.status(200).json(wallets);
   } catch (error) {
     return next(error);

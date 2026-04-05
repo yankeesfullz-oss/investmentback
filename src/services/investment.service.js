@@ -33,6 +33,7 @@ function addMonths(startDate, durationMonths) {
 
 async function listInvestments(filter = {}) {
   return RentalInvestment.find(filter)
+    .populate('user', 'fullName email role')
     .populate('property')
     .sort({ createdAt: -1 });
 }
