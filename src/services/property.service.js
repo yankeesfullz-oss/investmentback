@@ -63,8 +63,8 @@ async function updateProperty(propertyId, payload) {
   return property;
 }
 
-async function autofillDraft(payload) {
-  return autofillPropertyDraft(buildNormalizedPropertyPayload(payload));
+async function autofillDraft(payload, options = {}) {
+  return autofillPropertyDraft(buildNormalizedPropertyPayload(payload), options);
 }
 
 async function deleteProperty(propertyId) {

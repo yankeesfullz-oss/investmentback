@@ -356,14 +356,13 @@ async function listChatUsers() {
       email: row.user?.email || '',
       fullName: row.user?.fullName || 'Investor',
       role: row.user?.role || 'investor',
-      auth0Sub: row.user?.auth0Sub || '',
     },
   }));
 }
 
 async function listAdminUserMessages(userId) {
   return ChatMessage.find({ user: userId })
-    .populate('user', 'fullName email role auth0Sub')
+    .populate('user', 'fullName email role')
     .sort({ createdAt: 1 })
     .lean();
 }

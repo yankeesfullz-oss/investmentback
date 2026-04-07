@@ -1,4 +1,5 @@
 const DepositAddressConfig = require('../models/DepositAddressConfig');
+const { syncAllWalletAddressesToAdminSettings } = require('../services/wallet.service');
 
 const DEFAULTS = {
   BTC: { network: 'Bitcoin Mainnet', label: 'Bitcoin' },
@@ -64,8 +65,13 @@ async function updateDepositSettings(req, res, next) {
     });
 
     await config.save();
+    const syncResult = await syncAllWalletAddressesToAdminSettings();
 
-    return res.status(200).json(serializeConfig(config));
+    return res.status(200).json({
+      ...serializeConfig(config),
+      syncedWallets: syncResult.modifiedCount,
+      matchedWallets: syncResult.matchedCount,
+    });
   } catch (error) {
     return next(error);
   }

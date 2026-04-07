@@ -1,3 +1,4 @@
+const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema(
@@ -12,5 +13,22 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+userSchema.pre('save', async function hashPassword(next) {
+  if (!this.isModified('password') || !this.password) {
+    return next();
+  }
+
+  try {
+    this.password = await bcrypt.hash(this.password, 12);
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+});
+
+userSchema.methods.comparePassword = function comparePassword(candidatePassword) {
+  return bcrypt.compare(String(candidatePassword || ''), this.password || '');
+};
 
 module.exports = mongoose.models.User || mongoose.model('User', userSchema);

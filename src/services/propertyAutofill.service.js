@@ -34,23 +34,34 @@ const NUMERIC_AUTOFILLABLE_FIELDS = [
   'demandScore',
 ];
 
-function parseJsonResponse(rawText) {
+function parseJsonResponse(rawText, correlationId) {
   const text = String(rawText || '').trim();
 
   if (!text) {
-    return {};
+    return null;
   }
 
   try {
     return JSON.parse(text);
   } catch (error) {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    // Try to extract a JSON object or array embedded in the response
+    const jsonMatch = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
 
     if (!jsonMatch) {
-      throw new Error('Gemini returned malformed JSON');
+      if (correlationId) {
+        console.error(`[autofill:${correlationId}] Gemini response not parseable as JSON (preview): ${String(text).slice(0,1000)}`);
+      }
+      return null;
     }
 
-    return JSON.parse(jsonMatch[0]);
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch (e) {
+      if (correlationId) {
+        console.error(`[autofill:${correlationId}] Failed parsing extracted JSON (preview): ${String(jsonMatch[0]).slice(0,1000)}`);
+      }
+      return null;
+    }
   }
 }
 
@@ -160,9 +171,11 @@ function buildPromptContext(draft) {
   };
 }
 
-async function autofillPropertyDraft(draft) {
+async function autofillPropertyDraft(draft, options = {}) {
   const promptContext = buildPromptContext(draft);
   const heuristicFields = pickBlankInferredFields(draft, inferPropertyNumericDefaults(draft));
+  const missingFields = AUTOFILLABLE_FIELDS.filter((field) => isBlankValue(promptContext[field]));
+  const missingInvestorCopyFields = ['investorHeadline', 'investorSummary'].filter((field) => isBlankValue(promptContext[field]));
 
   if (!promptContext.name && !promptContext.location && !promptContext.addressLine1) {
     throw new Error('Add at least a property name or location before using Fill blanks');
@@ -177,6 +190,12 @@ async function autofillPropertyDraft(draft) {
     'Numeric pricing and payout fields are handled by deterministic heuristics and should not be rewritten.',
     'Do not invent legal claims, certifications, exact financial guarantees, or unverifiable facts.',
     'Prefer conservative, neutral real-estate marketing copy.',
+    'When generating investorHeadline or investorSummary, write for investors evaluating an income-producing asset, not for guests booking a stay.',
+    'Use the property description as the primary source for investor copy. Use location, market, layout, demand, and payout context only as supporting evidence.',
+    'Avoid vacation language, hospitality fluff, generic luxury adjectives, and direct promises of returns.',
+    'investorHeadline should be a concise investor-facing line of roughly 6 to 12 words.',
+    'investorSummary should be 1 to 3 sentences that frame the opportunity in terms of asset context, demand signals, operational profile, or managed cashflow potential without making guarantees.',
+    'If the property description is missing or too thin to support investor-facing copy, omit investorHeadline and investorSummary.',
     'highlights, trustBadges, and tags must be arrays of short strings.',
   ].join(' ');
 
@@ -185,6 +204,11 @@ async function autofillPropertyDraft(draft) {
     'Existing non-blank fields are authoritative and must not be rewritten.',
     'Use the provided heuristic estimates as supporting context for the marketing copy.',
     'If you are unsure, omit the field entirely.',
+    `Missing autofill fields: ${missingFields.join(', ') || 'none'}.`,
+    missingInvestorCopyFields.length > 0
+      ? `Draft ${missingInvestorCopyFields.join(' and ')} from the property description first, then use grounded property facts to support the investor angle.`
+      : 'Do not rewrite existing investor headline or investor summary fields.',
+    'If you generate investor-facing copy, make it useful for an investor evaluating demand, positioning, and operating potential rather than a traveler choosing a stay.',
     'Heuristic estimates JSON:',
     JSON.stringify(heuristicFields, null, 2),
     '',
@@ -193,6 +217,9 @@ async function autofillPropertyDraft(draft) {
   ].join('\n\n');
 
   let aiFields = {};
+  let partial = false;
+
+  const correlationId = options.correlationId || `${Date.now().toString(36)}-${Math.random().toString(16).slice(2,8)}`;
 
   try {
     const rawResponse = await generateChatResponse({
@@ -203,18 +230,33 @@ async function autofillPropertyDraft(draft) {
         topP: 0.9,
         maxOutputTokens: 1200,
       },
+      debug: { correlationId },
     });
+    const parsed = parseJsonResponse(rawResponse, correlationId);
 
-    aiFields = sanitizeFilledFields(promptContext, parseJsonResponse(rawResponse));
+    if (parsed) {
+      aiFields = sanitizeFilledFields(promptContext, parsed);
+    } else {
+      partial = true;
+      console.error(`[autofill:${correlationId}] Gemini returned malformed or non-JSON output (preview): ${String(rawResponse).slice(0,1200)}`);
+    }
   } catch (error) {
+    console.error(`[autofill:${correlationId}] Exception while calling Gemini:`, error?.message || error);
+
     if (Object.keys(heuristicFields).length === 0) {
-      throw error;
+      // No heuristics to fall back to — surface the error including correlationId
+      const err = new Error(`[autofill:${correlationId}] ${error?.message || 'Gemini request failed'}`);
+      throw err;
     }
   }
 
   return {
-    ...heuristicFields,
-    ...aiFields,
+    fields: {
+      ...heuristicFields,
+      ...aiFields,
+    },
+    partial,
+    correlationId,
   };
 }
 

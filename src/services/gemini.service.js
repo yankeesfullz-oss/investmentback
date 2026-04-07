@@ -56,7 +56,7 @@ function isModelNotFoundError(error) {
     || message.includes('is not supported for generateContent');
 }
 
-async function generateChatResponse({ systemPrompt, userPrompt, screenshots = [], generationConfig = {} }) {
+async function generateChatResponse({ systemPrompt, userPrompt, screenshots = [], generationConfig = {}, debug = {} }) {
   const client = getClient();
   if (!client) {
     throw new Error('Gemini API key is not configured');
@@ -90,7 +90,14 @@ async function generateChatResponse({ systemPrompt, userPrompt, screenshots = []
           ...generationConfig,
         },
       });
-      const text = sanitizeResponseText(extractResponseText(result.response));
+      const rawExtracted = extractResponseText(result.response) || '';
+
+      if (debug?.correlationId) {
+        // Log a preview of the raw AI output for debugging (no secrets expected here)
+        console.error(`[autofill:${debug.correlationId}] Gemini raw output (preview): ${String(rawExtracted).slice(0,1200)}`);
+      }
+
+      const text = sanitizeResponseText(rawExtracted);
 
       if (!text) {
         throw new Error(`Gemini returned an empty response for model ${modelName}`);

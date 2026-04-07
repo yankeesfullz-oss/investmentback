@@ -38,8 +38,20 @@ async function updateProperty(req, res, next) {
 
 async function autofillDraft(req, res, next) {
   try {
-    const fields = await propertyService.autofillDraft(req.body);
-    return res.status(200).json(fields);
+    const correlationId = `${Date.now().toString(36)}-${Math.random().toString(16).slice(2,8)}`;
+    const result = await propertyService.autofillDraft(req.body, { correlationId });
+
+    if (result && result.correlationId) {
+      res.set('X-Autofill-Correlation-Id', result.correlationId);
+    } else {
+      res.set('X-Autofill-Correlation-Id', correlationId);
+    }
+
+    if (result && result.partial) {
+      res.set('X-Autofill-Partial', '1');
+    }
+
+    return res.status(200).json((result && result.fields) || {});
   } catch (error) {
     return next(error);
   }

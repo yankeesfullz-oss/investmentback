@@ -1,26 +1,21 @@
 const Wallet = require('../models/Wallet');
-const WalletSequence = require('../models/WalletSequence');
 const WalletLedger = require('../models/WalletLedger');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
+const DepositAddressConfig = require('../models/DepositAddressConfig');
 const { BTC, ETH, USDT } = require('../constants/currencies');
+
+const WALLET_DEFAULTS = {
+  [BTC]: { network: 'Bitcoin Mainnet', label: 'Bitcoin' },
+  [ETH]: { network: 'Ethereum Mainnet', label: 'Ethereum' },
+  [USDT]: { network: 'TRC20 / Tron', label: 'Tether USD' },
+};
+const SUPPORTED_CURRENCIES = [BTC, ETH, USDT];
 
 function createHttpError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
-}
-
-function loadWalletGenerator(modulePath, exportName) {
-  try {
-    return require(modulePath)[exportName];
-  } catch (error) {
-    if (error && error.code === 'MODULE_NOT_FOUND') {
-      return null;
-    }
-
-    throw error;
-  }
 }
 
 async function listUserWallets(userId) {
@@ -31,73 +26,112 @@ async function createWallet(payload) {
   return Wallet.create(payload);
 }
 
-async function reserveWalletIndex(sequenceKey) {
-  const sequence = await WalletSequence.findOneAndUpdate(
-    { key: sequenceKey },
-    { $inc: { nextIndex: 1 } },
-    {
-      new: false,
-      upsert: true,
-      setDefaultsOnInsert: true,
-    }
-  );
+async function getOrCreateDepositAddressConfig() {
+  let config = await DepositAddressConfig.findOne({ key: 'deposit-addresses' });
 
-  return sequence ? sequence.nextIndex : 0;
-}
-
-async function createUniqueWallet(userId, currency, sequenceKey, generator) {
-  if (!generator) {
-    return {
-      user: userId,
-      currency,
-      address: '',
-      encryptedPrivateKey: '',
-    };
+  if (!config) {
+    config = await DepositAddressConfig.create({ key: 'deposit-addresses' });
   }
 
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const index = await reserveWalletIndex(sequenceKey);
-    const wallet = await generator(userId, { index });
-    const existingWallet = await Wallet.exists({ address: wallet.address });
-
-    if (!existingWallet) {
-      return {
-        user: userId,
-        currency,
-        address: wallet.address,
-        encryptedPrivateKey: wallet.encryptedPrivateKey,
-      };
-    }
-  }
-
-  throw new Error(`Unable to allocate a unique ${currency} wallet address.`);
+  return config;
 }
 
 async function provisionUserWallets(userId) {
+  const config = await getOrCreateDepositAddressConfig();
   const existingWallets = await Wallet.find({ user: userId });
-  const existingCurrencies = new Set(existingWallets.map((wallet) => wallet.currency));
+  const walletsByCurrency = new Map(existingWallets.map((wallet) => [wallet.currency, wallet]));
   const walletsToCreate = [];
-  const generateBtcWallet = loadWalletGenerator('../blockchain/btcWalletGenerator', 'generateBtcWallet');
-  const generateEthWallet = loadWalletGenerator('../blockchain/ethWalletGenerator', 'generateEthWallet');
-  const generateUsdtWallet = loadWalletGenerator('../blockchain/usdtWalletGenerator', 'generateUsdtWallet');
 
-  if (!existingCurrencies.has(BTC)) {
-    walletsToCreate.push(await createUniqueWallet(userId, BTC, 'btc', generateBtcWallet));
-  }
+  SUPPORTED_CURRENCIES.forEach((currency) => {
+    if (walletsByCurrency.has(currency)) {
+      return;
+    }
 
-  if (!existingCurrencies.has(ETH)) {
-    walletsToCreate.push(await createUniqueWallet(userId, ETH, 'eth', generateEthWallet));
-  }
-
-  if (!existingCurrencies.has(USDT)) {
-    walletsToCreate.push(await createUniqueWallet(userId, USDT, 'usdt', generateUsdtWallet));
-  }
+    walletsToCreate.push({
+      user: userId,
+      currency,
+      address: String(config?.[currency]?.address || '').trim(),
+      encryptedPrivateKey: '',
+    });
+  });
 
   if (walletsToCreate.length > 0) {
     await Wallet.insertMany(walletsToCreate);
+
+    walletsToCreate.forEach((wallet) => {
+      walletsByCurrency.set(wallet.currency, wallet);
+    });
+  }
+
+  const syncedWallets = [];
+  for (const currency of SUPPORTED_CURRENCIES) {
+    const wallet = walletsByCurrency.get(currency);
+    if (!wallet) {
+      continue;
+    }
+
+    const sharedAddress = String(config?.[currency]?.address || '').trim();
+    const needsUpdate = wallet.address !== sharedAddress || wallet.encryptedPrivateKey !== '';
+
+    if (!needsUpdate) {
+      continue;
+    }
+
+    wallet.address = sharedAddress;
+    wallet.encryptedPrivateKey = '';
+    syncedWallets.push(wallet.save());
+  }
+
+  if (syncedWallets.length > 0) {
+    await Promise.all(syncedWallets);
   }
 
   return listUserWallets(userId);
+}
+
+async function syncAllWalletAddressesToAdminSettings() {
+  const config = await getOrCreateDepositAddressConfig();
+  const bulkOperations = SUPPORTED_CURRENCIES.map((currency) => ({
+    updateMany: {
+      filter: {
+        currency,
+        $or: [
+          { address: { $ne: String(config?.[currency]?.address || '').trim() } },
+          { encryptedPrivateKey: { $ne: '' } },
+        ],
+      },
+      update: {
+        $set: {
+          address: String(config?.[currency]?.address || '').trim(),
+          encryptedPrivateKey: '',
+        },
+      },
+    },
+  }));
+
+  const result = await Wallet.bulkWrite(bulkOperations, { ordered: false });
+
+  return {
+    matchedCount: result.matchedCount || 0,
+    modifiedCount: result.modifiedCount || 0,
+    config: {
+      BTC: {
+        address: String(config?.BTC?.address || '').trim(),
+        network: config?.BTC?.network || WALLET_DEFAULTS.BTC.network,
+        label: config?.BTC?.label || WALLET_DEFAULTS.BTC.label,
+      },
+      ETH: {
+        address: String(config?.ETH?.address || '').trim(),
+        network: config?.ETH?.network || WALLET_DEFAULTS.ETH.network,
+        label: config?.ETH?.label || WALLET_DEFAULTS.ETH.label,
+      },
+      USDT: {
+        address: String(config?.USDT?.address || '').trim(),
+        network: config?.USDT?.network || WALLET_DEFAULTS.USDT.network,
+        label: config?.USDT?.label || WALLET_DEFAULTS.USDT.label,
+      },
+    },
+  };
 }
 
 async function resolveUser({ userId, email }) {
@@ -184,5 +218,6 @@ module.exports = {
   listUserWallets,
   createWallet,
   provisionUserWallets,
+  syncAllWalletAddressesToAdminSettings,
   adminCreditWallet,
 };
