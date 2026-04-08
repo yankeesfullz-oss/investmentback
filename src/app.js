@@ -34,6 +34,13 @@ const chatRoutes = safeRequire('./routes/chat.routes');
 
 const app = express();
 
+const configuredTrustProxy = process.env.TRUST_PROXY;
+if (configuredTrustProxy) {
+  app.set('trust proxy', configuredTrustProxy === 'true' ? 1 : configuredTrustProxy);
+} else if (env.nodeEnv === 'production') {
+  app.set('trust proxy', 1);
+}
+
 app.use(helmet());
 // Configure CORS: allow all in development, otherwise restrict to allowed origins
 const corsOptions = {
