@@ -31,6 +31,7 @@ const investmentRoutes = safeRequire('./routes/investment.routes');
 const bookingRoutes = safeRequire('./routes/booking.routes');
 const payoutRoutes = safeRequire('./routes/payout.routes');
 const chatRoutes = safeRequire('./routes/chat.routes');
+const referralRoutes = safeRequire('./routes/referral.routes');
 
 const app = express();
 
@@ -77,6 +78,7 @@ const routeRegistry = [
   ['/api/bookings', bookingRoutes],
   ['/api/payouts', payoutRoutes],
   ['/api/chat', chatRoutes],
+  ['/api/referrals', referralRoutes],
 ];
 
 routeRegistry.forEach(([basePath, router]) => {

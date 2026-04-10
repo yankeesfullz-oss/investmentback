@@ -7,6 +7,8 @@ const userSchema = new mongoose.Schema(
     fullName: { type: String, default: '' },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, default: '', select: false },
+    referralCode: { type: String, default: '', uppercase: true, trim: true, unique: true, sparse: true },
+    referrerUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     role: { type: String, enum: ['admin', 'investor'], default: 'investor' },
     isActive: { type: Boolean, default: true },
     lastLoginAt: { type: Date, default: null },

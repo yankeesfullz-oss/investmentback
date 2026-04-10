@@ -1,7 +1,7 @@
 const User = require('../models/User');
 
 function getUserSelectFields() {
-  return 'email fullName role lastLoginAt createdAt updatedAt';
+  return 'email fullName referralCode referrerUser role lastLoginAt createdAt updatedAt';
 }
 
 async function getCurrentUser(req, res, next) {

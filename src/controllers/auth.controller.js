@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const { generateUniqueReferralCode, resolveReferrerByCode } = require('../services/referral.service');
 const { provisionUserWallets } = require('../services/wallet.service');
 const { signToken } = require('../utils/jwt');
 
@@ -16,6 +17,8 @@ function buildAuthResponse(user) {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
+      referralCode: user.referralCode || '',
+      referrerUser: user.referrerUser || null,
       role: user.role,
       lastLoginAt: user.lastLoginAt,
     },
@@ -27,16 +30,24 @@ async function investorSignup(req, res, next) {
     const email = String(req.body.email || '').trim().toLowerCase();
     const fullName = String(req.body.fullName || '').trim();
     const password = String(req.body.password || '');
+    const referralCode = String(req.body.referralCode || '').trim().toUpperCase();
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(409).json({ message: 'An account already exists for this email address' });
     }
 
+    const [referrerUser, generatedReferralCode] = await Promise.all([
+      referralCode ? resolveReferrerByCode(referralCode) : Promise.resolve(null),
+      generateUniqueReferralCode(),
+    ]);
+
     const user = await User.create({
       email,
       fullName,
       password,
+      referralCode: generatedReferralCode,
+      referrerUser: referrerUser?.id || null,
       role: 'investor',
       lastLoginAt: new Date(),
     });

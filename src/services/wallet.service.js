@@ -148,20 +148,43 @@ async function resolveUser({ userId, email }) {
   throw createHttpError('Target user not found', 404);
 }
 
-async function adminCreditWallet({ userId, email, currency, amount, note, createdByAdmin = null }) {
-  if (!userId && !email) {
-    throw createHttpError('Provide either userId or email', 400);
-  }
-
+function normalizeCreditCurrency(currency) {
   const normalizedCurrency = String(currency || '').trim().toUpperCase();
   if (![BTC, ETH, USDT].includes(normalizedCurrency)) {
     throw createHttpError('currency must be one of BTC, ETH, or USDT', 400);
   }
 
+  return normalizedCurrency;
+}
+
+function normalizeCreditAmount(amount) {
   const normalizedAmount = Number(amount);
   if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
     throw createHttpError('amount must be greater than zero', 400);
   }
+
+  return normalizedAmount;
+}
+
+async function creditWalletBalance({
+  userId,
+  email,
+  currency,
+  amount,
+  note,
+  createdByAdmin = null,
+  ledgerType = 'manual_admin_credit',
+  transactionType = 'manual_admin_credit',
+  referenceModel = '',
+  referenceId = '',
+  metadata = {},
+}) {
+  if (!userId && !email) {
+    throw createHttpError('Provide either userId or email', 400);
+  }
+
+  const normalizedCurrency = normalizeCreditCurrency(currency);
+  const normalizedAmount = normalizeCreditAmount(amount);
 
   const user = await resolveUser({ userId, email });
   await provisionUserWallets(user.id);
@@ -180,28 +203,32 @@ async function adminCreditWallet({ userId, email, currency, amount, note, create
   const ledger = await WalletLedger.create({
     user: user.id,
     wallet: wallet.id,
-    type: 'manual_admin_credit',
+    type: ledgerType,
     amount: normalizedAmount,
     currency: normalizedCurrency,
     balanceBefore,
     balanceAfter,
-    note: note || `Manual admin credit of ${normalizedAmount} ${normalizedCurrency}`,
+    note: note || `${ledgerType} of ${normalizedAmount} ${normalizedCurrency}`,
+    referenceModel,
+    referenceId,
     createdByAdmin,
   });
 
-  await Transaction.create({
+  const transaction = await Transaction.create({
     user: user.id,
-    type: 'manual_admin_credit',
+    type: transactionType,
     currency: normalizedCurrency,
     amount: normalizedAmount,
     balanceBefore,
     balanceAfter,
-    reference: String(ledger.id),
+    reference: referenceId || String(ledger.id),
     metadata: {
-      source: 'admin_manual_funding',
       wallet: wallet.id,
       createdByAdmin,
       note: ledger.note,
+      referenceModel,
+      referenceId,
+      ...metadata,
     },
   });
 
@@ -209,9 +236,33 @@ async function adminCreditWallet({ userId, email, currency, amount, note, create
     user,
     wallet,
     ledger,
+    transaction,
     balanceBefore,
     balanceAfter,
   };
+}
+
+async function adminCreditWallet({ userId, email, currency, amount, note, createdByAdmin = null }) {
+  if (!userId && !email) {
+    throw createHttpError('Provide either userId or email', 400);
+  }
+
+  const normalizedCurrency = normalizeCreditCurrency(currency);
+  const normalizedAmount = normalizeCreditAmount(amount);
+
+  return creditWalletBalance({
+    userId,
+    email,
+    currency: normalizedCurrency,
+    amount: normalizedAmount,
+    note: note || `Manual admin credit of ${normalizedAmount} ${normalizedCurrency}`,
+    createdByAdmin,
+    ledgerType: 'manual_admin_credit',
+    transactionType: 'manual_admin_credit',
+    metadata: {
+      source: 'admin_manual_funding',
+    },
+  });
 }
 
 module.exports = {
@@ -219,5 +270,6 @@ module.exports = {
   createWallet,
   provisionUserWallets,
   syncAllWalletAddressesToAdminSettings,
+  creditWalletBalance,
   adminCreditWallet,
 };

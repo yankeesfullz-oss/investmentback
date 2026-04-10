@@ -7,6 +7,8 @@ const {
   isValidDurationMonths,
   resolveAllowedDurations,
 } = require('../utils/propertyDurationUtils');
+const { calculateInvestmentPayoutExpectations } = require('./payout.service');
+const { qualifyReferralCommission } = require('./referral.service');
 
 function createHttpError(message, statusCode) {
   const error = new Error(message);
@@ -96,9 +98,12 @@ async function createInvestment(payload) {
     throw createHttpError('Insufficient available wallet balance', 400);
   }
 
-  const expectedDailyPayout = Number(property.currentDailyPayoutAmount || 0);
-  const expectedMonthlyPayout = expectedDailyPayout * 30;
-  const expectedTotalPayout = expectedDailyPayout * Math.ceil((endDate - startDate) / 86400000 + 1);
+  const payoutExpectations = calculateInvestmentPayoutExpectations({
+    property,
+    startDate,
+    endDate,
+    dailyAmount: Number(property.currentDailyPayoutAmount || 0),
+  });
   const balanceBefore = wallet.availableBalance;
   const balanceAfter = balanceBefore - slotPrice;
 
@@ -115,9 +120,9 @@ async function createInvestment(payload) {
     durationMonths,
     slotPrice,
     currency,
-    expectedDailyPayout,
-    expectedMonthlyPayout,
-    expectedTotalPayout,
+    expectedDailyPayout: payoutExpectations.expectedDailyPayout,
+    expectedMonthlyPayout: payoutExpectations.expectedMonthlyPayout,
+    expectedTotalPayout: payoutExpectations.expectedTotalPayout,
     status: startDate <= new Date() ? 'active' : 'reserved',
     paymentStatus: 'paid',
   });
@@ -152,6 +157,12 @@ async function createInvestment(payload) {
       model: 'RentalInvestment',
     },
   });
+
+  try {
+    await qualifyReferralCommission({ investment });
+  } catch (error) {
+    console.error('[referrals] failed to qualify referral commission', error);
+  }
 
   return RentalInvestment.findById(investment.id).populate('property');
 }
