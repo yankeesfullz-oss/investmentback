@@ -5,6 +5,7 @@ const env = require('./config/env');
 const connectDatabase = require('./config/database');
 const { initializeSocket } = require('./config/socket');
 const setupSocketHandlers = require('./realtime/socketHandlers');
+const { startAutomaticPayoutJob } = require('./jobs/automaticPayoutJob');
 
 async function startServer() {
   await connectDatabase();
@@ -18,6 +19,7 @@ async function startServer() {
   });
 
   setupSocketHandlers(io);
+  startAutomaticPayoutJob();
 
   server.on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {

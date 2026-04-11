@@ -1,5 +1,6 @@
 const DailyPayout = require('../models/DailyPayout');
 const RentalInvestment = require('../models/RentalInvestment');
+const mongoose = require('mongoose');
 const {
   creditWalletBalance,
   provisionUserWallets,
@@ -10,6 +11,8 @@ const {
   formatUtcDateKey,
   getPayoutDayDetails,
   resolveOccupancyRate,
+  resolveInvestmentDailyAmount,
+  resolveInvestmentOccupancyRate,
   startOfUtcDay,
 } = require('../utils/payoutScheduleUtils');
 
@@ -68,14 +71,66 @@ async function syncInvestmentLifecycleStatuses(targetDate = new Date()) {
   };
 }
 
-async function listEligibleInvestments(targetDate = new Date()) {
+async function listEligibleInvestments({ targetDate = new Date(), investmentIds = [], userId = null } = {}) {
   const businessDate = startOfUtcDay(targetDate);
 
-  return RentalInvestment.find({
+  const filter = {
     paymentStatus: 'paid',
     status: { $in: ['reserved', 'active', 'completed'] },
     startDate: { $lte: businessDate },
-  }).populate('property');
+  };
+
+  if (Array.isArray(investmentIds) && investmentIds.length > 0) {
+    filter._id = {
+      $in: investmentIds
+        .filter(Boolean)
+        .map((value) => (mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value)),
+    };
+  }
+
+  if (userId) {
+    filter.user = userId;
+  }
+
+  return RentalInvestment.find(filter).populate('property');
+}
+
+function buildSnapshotPayload({ investment, property }) {
+  const payoutDailyAmountSnapshot = resolveInvestmentDailyAmount(investment, property);
+  const occupancyRateSnapshot = resolveInvestmentOccupancyRate(investment, property);
+  const expectedSummary = calculateExpectedPayoutSummary({
+    startDate: investment.startDate,
+    endDate: investment.endDate,
+    dailyAmount: payoutDailyAmountSnapshot,
+    occupancyRate: occupancyRateSnapshot,
+  });
+
+  return {
+    payoutDailyAmountSnapshot,
+    occupancyRateSnapshot,
+    expectedDailyPayout: payoutDailyAmountSnapshot,
+    expectedMonthlyPayout: expectedSummary.expectedMonthlyPayout,
+    expectedTotalPayout: expectedSummary.totalPayout,
+  };
+}
+
+async function syncInvestmentPayoutSnapshot(investment) {
+  const property = investment.property;
+  const payload = buildSnapshotPayload({ investment, property });
+  const snapshotNeedsWrite = investment.payoutDailyAmountSnapshot == null
+    || investment.occupancyRateSnapshot == null
+    || investment.expectedDailyPayout == null
+    || investment.expectedMonthlyPayout == null
+    || investment.expectedTotalPayout == null;
+
+  if (!snapshotNeedsWrite) {
+    return payload;
+  }
+
+  await RentalInvestment.updateOne({ _id: investment.id }, { $set: payload });
+  Object.assign(investment, payload);
+
+  return payload;
 }
 
 async function creditDailyPayout({ investment, property, payoutDetails, initiatedByAdmin = null }) {
@@ -175,15 +230,26 @@ async function markFailedDailyPayout({ investment, property, payoutDetails, erro
   );
 }
 
-async function runAutomaticPayouts({ targetDate = new Date(), catchUp = true, initiatedByAdmin = null } = {}) {
+async function runAutomaticPayouts({
+  targetDate = new Date(),
+  catchUp = true,
+  initiatedByAdmin = null,
+  investmentIds = [],
+  userId = null,
+  rangeStartDate = null,
+  rangeEndDate = null,
+} = {}) {
   const businessDate = startOfUtcDay(targetDate);
   const lifecycleSummary = await syncInvestmentLifecycleStatuses(businessDate);
-  const investments = await listEligibleInvestments(businessDate);
+  const effectiveRangeStart = rangeStartDate ? startOfUtcDay(rangeStartDate) : null;
+  const effectiveRangeEnd = rangeEndDate ? startOfUtcDay(rangeEndDate) : null;
+  const investments = await listEligibleInvestments({ targetDate: businessDate, investmentIds, userId });
   const summary = {
     businessDate: formatUtcDateKey(businessDate),
     catchUp,
     lifecycleSummary,
     investmentsExamined: investments.length,
+    investmentsUpdated: 0,
     payoutsCreated: 0,
     payoutsSkipped: 0,
     payoutsFailed: 0,
@@ -192,25 +258,40 @@ async function runAutomaticPayouts({ targetDate = new Date(), catchUp = true, in
 
   for (const investment of investments) {
     const property = investment.property;
+    const previousDailySnapshot = investment.payoutDailyAmountSnapshot;
+    const previousOccupancySnapshot = investment.occupancyRateSnapshot;
+    await syncInvestmentPayoutSnapshot(investment);
+    if (previousDailySnapshot == null || previousOccupancySnapshot == null) {
+      summary.investmentsUpdated += 1;
+    }
     const lastEligibleDate = startOfUtcDay(investment.endDate) < businessDate
       ? startOfUtcDay(investment.endDate)
       : businessDate;
-    const firstEligibleDate = catchUp ? startOfUtcDay(investment.startDate) : lastEligibleDate;
+    let firstEligibleDate = catchUp ? startOfUtcDay(investment.startDate) : lastEligibleDate;
+    let finalEligibleDate = lastEligibleDate;
 
-    if (lastEligibleDate < firstEligibleDate) {
+    if (effectiveRangeStart && effectiveRangeStart > firstEligibleDate) {
+      firstEligibleDate = effectiveRangeStart;
+    }
+
+    if (effectiveRangeEnd && effectiveRangeEnd < finalEligibleDate) {
+      finalEligibleDate = effectiveRangeEnd;
+    }
+
+    if (finalEligibleDate < firstEligibleDate) {
       continue;
     }
 
     const existingPayouts = await DailyPayout.find({
       rentalInvestment: investment.id,
-      payoutDate: { $gte: firstEligibleDate, $lte: lastEligibleDate },
+      payoutDate: { $gte: firstEligibleDate, $lte: finalEligibleDate },
       status: 'paid',
     }).select('payoutDate');
     const paidDateKeys = new Set(existingPayouts.map((entry) => formatUtcDateKey(entry.payoutDate)));
 
     for (
       let payoutDate = firstEligibleDate;
-      payoutDate <= lastEligibleDate;
+      payoutDate <= finalEligibleDate;
       payoutDate = addUtcDays(payoutDate, 1)
     ) {
       const payoutDateKey = formatUtcDateKey(payoutDate);
@@ -270,8 +351,28 @@ function calculateInvestmentPayoutExpectations({ property, startDate, endDate, d
   };
 }
 
+async function backfillPayouts({
+  targetDate = new Date(),
+  initiatedByAdmin = null,
+  investmentIds = [],
+  userId = null,
+  startDate = null,
+  endDate = null,
+} = {}) {
+  return runAutomaticPayouts({
+    targetDate: endDate || targetDate,
+    catchUp: true,
+    initiatedByAdmin,
+    investmentIds,
+    userId,
+    rangeStartDate: startDate,
+    rangeEndDate: endDate,
+  });
+}
+
 module.exports = {
   syncInvestmentLifecycleStatuses,
   runAutomaticPayouts,
+  backfillPayouts,
   calculateInvestmentPayoutExpectations,
 };

@@ -54,7 +54,26 @@ async function runAutomaticPayouts(req, res, next) {
   }
 }
 
+async function backfillPayouts(req, res, next) {
+  try {
+    const targetDate = req.body?.targetDate ? new Date(req.body.targetDate) : new Date();
+    const summary = await payoutService.backfillPayouts({
+      targetDate,
+      startDate: req.body?.startDate ? new Date(req.body.startDate) : null,
+      endDate: req.body?.endDate ? new Date(req.body.endDate) : null,
+      investmentIds: Array.isArray(req.body?.investmentIds) ? req.body.investmentIds : [],
+      userId: req.body?.userId || null,
+      initiatedByAdmin: req.user?.id || null,
+    });
+
+    return res.status(200).json(summary);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   listPayouts,
   runAutomaticPayouts,
+  backfillPayouts,
 };

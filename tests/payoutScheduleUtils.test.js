@@ -74,3 +74,41 @@ test('calculates february total payout with occupancy-aware rounding', () => {
   assert.equal(summary.totalPayout, 1400);
   assert.equal(summary.expectedMonthlyPayout, 1400);
 });
+
+test('uses investment payout snapshots before current property values', () => {
+  const investment = {
+    startDate: '2026-04-01T00:00:00Z',
+    endDate: '2026-04-30T00:00:00Z',
+    expectedDailyPayout: 95,
+    payoutDailyAmountSnapshot: 125,
+    occupancyRateSnapshot: 80,
+  };
+  const property = {
+    currentDailyPayoutAmount: 40,
+    occupancyScore: 20,
+  };
+
+  const payoutDay = getPayoutDayDetails({ investment, property, payoutDate: '2026-04-20T00:00:00Z' });
+  const blockedDay = getPayoutDayDetails({ investment, property, payoutDate: '2026-04-25T00:00:00Z' });
+
+  assert.equal(payoutDay.dailyAmount, 125);
+  assert.equal(payoutDay.occupancyRate, 80);
+  assert.equal(payoutDay.payableDaysInWindow, 24);
+  assert.equal(payoutDay.isPayable, true);
+  assert.equal(blockedDay.isPayable, false);
+});
+
+test('falls back to property occupancy when legacy investments have no snapshot', () => {
+  const investment = {
+    startDate: '2026-04-01T00:00:00Z',
+    endDate: '2026-04-30T00:00:00Z',
+    expectedDailyPayout: 100,
+  };
+  const property = { occupancyScore: 50 };
+
+  const payoutDay = getPayoutDayDetails({ investment, property, payoutDate: '2026-04-15T00:00:00Z' });
+  const blockedDay = getPayoutDayDetails({ investment, property, payoutDate: '2026-04-16T00:00:00Z' });
+
+  assert.equal(payoutDay.isPayable, true);
+  assert.equal(blockedDay.isPayable, false);
+});

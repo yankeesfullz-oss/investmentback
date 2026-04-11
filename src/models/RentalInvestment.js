@@ -25,6 +25,8 @@ const rentalInvestmentSchema = new mongoose.Schema(
     },
     slotPrice: { type: Number, required: true },
     currency: { type: String, enum: ['BTC', 'ETH', 'USDT', 'USD'], default: 'USDT' },
+    payoutDailyAmountSnapshot: { type: Number, default: 0 },
+    occupancyRateSnapshot: { type: Number, default: 0, min: 0, max: 100 },
     expectedDailyPayout: { type: Number, default: 0 },
     expectedMonthlyPayout: { type: Number, default: 0 },
     expectedTotalPayout: { type: Number, default: 0 },

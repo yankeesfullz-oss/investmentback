@@ -63,6 +63,26 @@ function resolveOccupancyRate(propertyLike) {
   return clampPercentage(propertyLike?.targetOccupancyRate);
 }
 
+function resolveInvestmentDailyAmount(investment, propertyLike) {
+  if (investment && investment.payoutDailyAmountSnapshot != null) {
+    return toCurrencyAmount(investment.payoutDailyAmountSnapshot);
+  }
+
+  if (investment && investment.expectedDailyPayout != null) {
+    return toCurrencyAmount(investment.expectedDailyPayout);
+  }
+
+  return toCurrencyAmount(propertyLike?.currentDailyPayoutAmount || 0);
+}
+
+function resolveInvestmentOccupancyRate(investment, propertyLike) {
+  if (investment && investment.occupancyRateSnapshot != null) {
+    return clampPercentage(investment.occupancyRateSnapshot);
+  }
+
+  return resolveOccupancyRate(propertyLike);
+}
+
 function toCurrencyAmount(value) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount)) return 0;
@@ -109,8 +129,8 @@ function getPayoutDayDetails({ investment, property, payoutDate }) {
   const normalizedPayoutDate = startOfUtcDay(payoutDate);
   const startDate = startOfUtcDay(investment.startDate);
   const endDate = startOfUtcDay(investment.endDate);
-  const dailyAmount = toCurrencyAmount(investment.expectedDailyPayout || property?.currentDailyPayoutAmount || 0);
-  const occupancyRate = resolveOccupancyRate(property);
+  const dailyAmount = resolveInvestmentDailyAmount(investment, property);
+  const occupancyRate = resolveInvestmentOccupancyRate(investment, property);
 
   if (normalizedPayoutDate < startDate || normalizedPayoutDate > endDate) {
     return {
@@ -195,6 +215,8 @@ module.exports = {
   countInclusiveUtcDays,
   clampPercentage,
   resolveOccupancyRate,
+  resolveInvestmentDailyAmount,
+  resolveInvestmentOccupancyRate,
   toCurrencyAmount,
   formatUtcDateKey,
   formatUtcMonthKey,

@@ -265,6 +265,169 @@ async function adminCreditWallet({ userId, email, currency, amount, note, create
   });
 }
 
+async function createWithdrawalRequest({ userId, amount, currency, network, destinationAddress }) {
+  if (!userId) {
+    throw createHttpError('userId is required', 400);
+  }
+
+  const normalizedCurrency = normalizeCreditCurrency(currency);
+  const normalizedAmount = normalizeCreditAmount(amount);
+  const normalizedNetwork = String(network || 'OTHER').trim() || 'OTHER';
+  const normalizedDestinationAddress = String(destinationAddress || '').trim();
+
+  if (!normalizedDestinationAddress) {
+    throw createHttpError('destinationAddress is required', 400);
+  }
+
+  await provisionUserWallets(userId);
+
+  const wallet = await Wallet.findOne({ user: userId, currency: normalizedCurrency });
+  if (!wallet) {
+    throw createHttpError(`Wallet not found for currency ${normalizedCurrency}`, 404);
+  }
+
+  const balanceBefore = Number(wallet.availableBalance || 0);
+  if (balanceBefore < normalizedAmount) {
+    throw createHttpError('Insufficient available wallet balance', 400);
+  }
+
+  const balanceAfter = balanceBefore - normalizedAmount;
+  wallet.availableBalance = balanceAfter;
+  wallet.reservedBalance = Number(wallet.reservedBalance || 0) + normalizedAmount;
+  await wallet.save();
+
+  const ledger = await WalletLedger.create({
+    user: userId,
+    wallet: wallet.id,
+    type: 'withdrawal_request_reserve',
+    amount: normalizedAmount,
+    currency: normalizedCurrency,
+    balanceBefore,
+    balanceAfter,
+    note: `Withdrawal request reserved for ${normalizedAmount} ${normalizedCurrency}`,
+    referenceModel: 'Transaction',
+    referenceId: '',
+  });
+
+  const transaction = await Transaction.create({
+    user: userId,
+    type: 'withdrawal_request',
+    currency: normalizedCurrency,
+    amount: normalizedAmount,
+    balanceBefore,
+    balanceAfter,
+    reference: String(ledger.id),
+    metadata: {
+      status: 'pending',
+      network: normalizedNetwork,
+      destinationAddress: normalizedDestinationAddress,
+      adminNote: '',
+      wallet: wallet.id,
+      reservedAmount: normalizedAmount,
+      statusHistory: [
+        {
+          status: 'pending',
+          changedAt: new Date(),
+          changedBy: userId,
+        },
+      ],
+    },
+  });
+
+  ledger.referenceId = transaction.id;
+  await ledger.save();
+
+  return {
+    wallet,
+    ledger,
+    transaction,
+    balanceBefore,
+    balanceAfter,
+  };
+}
+
+async function markWithdrawalAsSent({ withdrawalId, adminUserId = null, adminNote = '', sentTxHash = '', sentAt = null }) {
+  const withdrawal = await Transaction.findOne({
+    _id: withdrawalId,
+    type: { $in: ['withdrawal', 'withdrawal_request'] },
+  });
+
+  if (!withdrawal) {
+    throw createHttpError('Withdrawal not found', 404);
+  }
+
+  const currentStatus = String(withdrawal.metadata?.status || 'pending').toLowerCase();
+  if (currentStatus !== 'pending') {
+    throw createHttpError('Only pending withdrawals can be marked as sent', 400);
+  }
+
+  const walletQuery = {
+    user: withdrawal.user,
+    currency: withdrawal.currency,
+  };
+  if (withdrawal.metadata?.wallet) {
+    walletQuery._id = withdrawal.metadata.wallet;
+  }
+
+  const wallet = await Wallet.findOne(walletQuery);
+
+  if (!wallet) {
+    throw createHttpError('Withdrawal wallet not found', 404);
+  }
+
+  const withdrawalAmount = Number(withdrawal.amount || 0);
+  const reservedAmount = Number(withdrawal.metadata?.reservedAmount || 0);
+  const availableBefore = Number(wallet.availableBalance || 0);
+
+  if (reservedAmount > 0) {
+    wallet.reservedBalance = Math.max(0, Number(wallet.reservedBalance || 0) - reservedAmount);
+  } else if (availableBefore >= withdrawalAmount) {
+    wallet.availableBalance = availableBefore - withdrawalAmount;
+  } else {
+    throw createHttpError('Insufficient wallet balance to complete legacy withdrawal', 400);
+  }
+
+  await wallet.save();
+
+  const statusHistory = Array.isArray(withdrawal.metadata?.statusHistory)
+    ? withdrawal.metadata.statusHistory.slice()
+    : [];
+  statusHistory.push({
+    status: 'sent',
+    changedAt: sentAt ? new Date(sentAt) : new Date(),
+    changedBy: adminUserId,
+  });
+
+  withdrawal.metadata = {
+    ...(withdrawal.metadata || {}),
+    status: 'sent',
+    adminNote: adminNote || withdrawal.metadata?.adminNote || '',
+    sentTxHash: sentTxHash || withdrawal.metadata?.sentTxHash || '',
+    sentAt: sentAt ? new Date(sentAt) : (withdrawal.metadata?.sentAt || new Date()),
+    statusHistory,
+  };
+  await withdrawal.save();
+
+  await WalletLedger.create({
+    user: withdrawal.user,
+    wallet: wallet.id,
+    type: 'withdrawal_sent',
+    amount: withdrawalAmount,
+    currency: withdrawal.currency,
+    balanceBefore: availableBefore,
+    balanceAfter: Number(wallet.availableBalance || 0),
+    note: `Withdrawal sent for ${withdrawalAmount} ${withdrawal.currency}`,
+    referenceModel: 'Transaction',
+    referenceId: withdrawal.id,
+    createdByAdmin: adminUserId,
+  });
+
+  return {
+    wallet,
+    withdrawal,
+  };
+}
+
 module.exports = {
   listUserWallets,
   createWallet,
@@ -272,4 +435,6 @@ module.exports = {
   syncAllWalletAddressesToAdminSettings,
   creditWalletBalance,
   adminCreditWallet,
+  createWithdrawalRequest,
+  markWithdrawalAsSent,
 };

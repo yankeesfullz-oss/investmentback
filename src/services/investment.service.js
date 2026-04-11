@@ -7,6 +7,7 @@ const {
   isValidDurationMonths,
   resolveAllowedDurations,
 } = require('../utils/propertyDurationUtils');
+const { resolveOccupancyRate } = require('../utils/payoutScheduleUtils');
 const { calculateInvestmentPayoutExpectations } = require('./payout.service');
 const { qualifyReferralCommission } = require('./referral.service');
 
@@ -104,6 +105,8 @@ async function createInvestment(payload) {
     endDate,
     dailyAmount: Number(property.currentDailyPayoutAmount || 0),
   });
+  const payoutDailyAmountSnapshot = Number(property.currentDailyPayoutAmount || 0);
+  const occupancyRateSnapshot = resolveOccupancyRate(property);
   const balanceBefore = wallet.availableBalance;
   const balanceAfter = balanceBefore - slotPrice;
 
@@ -120,6 +123,8 @@ async function createInvestment(payload) {
     durationMonths,
     slotPrice,
     currency,
+    payoutDailyAmountSnapshot,
+    occupancyRateSnapshot,
     expectedDailyPayout: payoutExpectations.expectedDailyPayout,
     expectedMonthlyPayout: payoutExpectations.expectedMonthlyPayout,
     expectedTotalPayout: payoutExpectations.expectedTotalPayout,
